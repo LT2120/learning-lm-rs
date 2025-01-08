@@ -71,7 +71,34 @@ pub fn masked_softmax(y: &mut Tensor<f32>) {
 }
 
 pub fn rms_norm(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tensor<f32>, epsilon: f32) {
-    todo!("实现 rms_norm，计算前做一些必要的检查会帮助你后续调试")
+    let mut len = y.size();
+    assert!(len == x.size());
+    
+    let shape = y.shape();
+    assert!(shape[shape.len() - 1] == w.shape()[w.shape().len() - 1]);
+
+    len = w.shape()[w.shape().len() - 1];
+    let mut loopLen = 1;
+    for i in 0..shape.len()-1{
+        loopLen *=shape[i];
+    }
+
+    let _y = unsafe { y.data_mut() };
+    let _x = x.data();
+    let _w = w.data();
+
+    let mut s=0.;
+
+    for j in 0..loopLen{
+        s = 0.;
+        for i in 0..len{
+            s += _x[j*len+ i].powf(2.);
+        }
+        s = (s/len as f32 +epsilon).sqrt();
+        for i in 0..len{
+            _y[j*len+i] = _x[j*len+i]*_w[i]/s;
+        }
+    }
 }
 
 // y = silu(x) * y
@@ -83,7 +110,6 @@ pub fn swiglu(y: &mut Tensor<f32>, x: &Tensor<f32>) {
     // let _y = unsafe { y.data_mut() };
     // let _x = x.data();
 
-    // todo!("实现 silu，这里给了一些前期准备工作的提示，你可以参考")
     let len = y.size();
     assert!(len == x.size());
 
@@ -98,7 +124,29 @@ pub fn swiglu(y: &mut Tensor<f32>, x: &Tensor<f32>) {
 // C = beta * C + alpha * A @ B^T
 // hint: You don't need to do an explicit transpose of B
 pub fn matmul_transb(c: &mut Tensor<f32>, beta: f32, a: &Tensor<f32>, b: &Tensor<f32>, alpha: f32) {
-    todo!("实现 matmul_transb，计算前做一些必要的检查会帮助你后续调试");
+    let shape = b.shape();
+    assert!(shape[shape.len() - 1] == a.shape()[a.shape().len() - 1]);
+
+    let _c = unsafe { c.data_mut() };
+    let _a = a.data();
+    let _b = b.data();
+
+    let len_i = a.shape()[0];
+    let len_j = shape[0];
+    let len_k = shape[1];
+
+    let mut s = 0.;
+
+    for i in 0..len_i{
+        for j in 0..len_j{
+            s = 0.;
+            for k in 0..len_k{
+                s+= alpha * _a[i*len_k+ k] * _b[j*len_k+ k];
+            }
+
+            _c[i*len_j+ j] = s + beta * _c[i*len_j+ j];
+        }
+    }
 }
 
 // Dot product of two tensors (treated as vectors)
