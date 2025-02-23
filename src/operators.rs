@@ -78,18 +78,18 @@ pub fn rms_norm(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tensor<f32>, epsilon: 
     assert!(shape[shape.len() - 1] == w.shape()[w.shape().len() - 1]);
 
     len = w.shape()[w.shape().len() - 1];
-    let mut loopLen = 1;
-    for i in 0..shape.len()-1{
-        loopLen *=shape[i];
+    let mut loop_len = 1;
+    for i in 0..shape.len()-1{//多维shape，可以只考虑最后一维
+        loop_len *=shape[i];
     }
 
     let _y = unsafe { y.data_mut() };
     let _x = x.data();
     let _w = w.data();
 
-    let mut s=0.;
+    let mut s;
 
-    for j in 0..loopLen{
+    for j in 0..loop_len{
         s = 0.;
         for i in 0..len{
             s += _x[j*len+ i].powf(2.);
@@ -99,6 +99,22 @@ pub fn rms_norm(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tensor<f32>, epsilon: 
             _y[j*len+i] = _x[j*len+i]*_w[i]/s;
         }
     }
+
+    // let dim = x.shape()[x.shape().len() - 1];
+    // let batch = x.size() / dim;
+
+    // for i in 0..batch {
+    //     let start = i * dim;
+    //     let x_i = &x.data()[start..][..dim];
+    //     let y_i = &mut unsafe { y.data_mut() }[start..][..dim];
+
+    //     let f = (x_i.iter().map(|&x_ii| x_ii * x_ii).sum::<f32>() / dim as f32 + epsilon).sqrt();
+
+    //     y_i.iter_mut()
+    //         .zip(x_i.iter().zip(w.data().iter()).map(|(&x_ii, &w_i)| x_ii * w_i / f))
+    //         .for_each(|(y_ii, x_ii)| *y_ii = x_ii);
+    // }
+
 }
 
 // y = silu(x) * y
@@ -119,6 +135,25 @@ pub fn swiglu(y: &mut Tensor<f32>, x: &Tensor<f32>) {
     for i in 0..len{
         _y[i] = _x[i]*(1. /(1. + std::f32::consts::E.powf(-_x[i])))*_y[i];
     }
+
+    // let len = y.size();
+    // assert!(len == x.size());
+
+    // let _y = unsafe { y.data_mut() };
+    // let _x = x.data();
+
+    // unsafe {
+    //     y.data_mut()
+    //         .iter_mut()
+    //         .zip(
+    //             x.data()
+    //                 .iter()
+    //                 .map(|x_i| 1. / (1. + (-*x_i).exp()))
+    //                 .zip(x.data().iter())
+    //                 .map(|(s_x, x_i)| s_x * *x_i),
+    //         )
+    //         .for_each(|(y_i, s_x)| *y_i = s_x * (*y_i));
+    // }
 }
 
 // C = beta * C + alpha * A @ B^T
@@ -135,7 +170,7 @@ pub fn matmul_transb(c: &mut Tensor<f32>, beta: f32, a: &Tensor<f32>, b: &Tensor
     let len_j = shape[0];
     let len_k = shape[1];
 
-    let mut s = 0.;
+    let mut s ;
 
     for i in 0..len_i{
         for j in 0..len_j{

@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::vec;
+use tokenizers::Tokenizer;
 
 use crate::config::LlamaConfigJson;
 use crate::kvcache::KVCache;
@@ -101,10 +102,34 @@ impl Llama<f32> {
             let full_k = &mut cache.k_cache(layer, 0); // (total_seq, n_kv_h * dqkv)
             let full_v = &mut cache.v_cache(layer, 0); // (total_seq, n_kv_h * dqkv)
 
-            todo!("self_attention(...)");
-            todo!("down_proj matmul and add residual");
+            // todo!("self_attention(...)");
+            self_attention(
+                &mut hidden_states, 
+                &mut att_scores,
+                q, 
+                full_k, 
+                full_v,
+                self.n_kv_h, 
+                n_groups, 
+                seq_len, 
+                total_seq_len, 
+                self.dqkv
+            );
+            // todo!("down_proj matmul and add residual");
+            OP::matmul_transb(&mut residual, 1., &hidden_states, &self.params.wo[layer], 1.);
 
-            todo!("mlp(...)");
+            // todo!("mlp(...)");
+            mlp(
+                &mut residual,
+                &mut hidden_states,
+                &mut gate_buf,
+                &mut up_buf,
+                &self.params.w_up[layer],
+                &self.params.w_down[layer],
+                &self.params.w_gate[layer],
+                &self.params.rms_ffn_w[layer],
+                self.eps,
+            );
         }
 
         // No matter what seq_len, the output is always a 1D vector of length vocab,
@@ -133,13 +158,236 @@ impl Llama<f32> {
         top_k: u32,
         temperature: f32,
     ) -> Vec<u32>{
-        let mut result = Vec::<u32>::new();
+        // let mut result = Vec::<u32>::new();
         
-        todo!("实现文本生成");
+        // todo!("实现文本生成");
+
+        let mut cache = self.new_cache(); // 初始化缓存
+        let mut input = Tensor::new(token_ids.to_vec(), &vec![token_ids.len()]);
+        let mut result = Vec::<u32>::new();
+        result.extend_from_slice(token_ids);
+
+        // 生成循环
+        for _ in 0..max_len {
+            // 前向计算
+            let logits = self.forward(&input, &mut cache);
+            
+            // 采样下一个token
+            let next_token = OP::random_sample(
+                &logits, 
+                top_p, 
+                top_k, 
+                temperature
+            );
+            
+            // 终止条件检查
+            if next_token == self.eos_token_id {
+                break;
+            }
+            
+            // 更新输入和结果
+            input = Tensor::new(vec![next_token], &vec![1]);
+            result.push(next_token);
+            
+            // 达到最大长度终止
+            if result.len() >= max_len {
+                break;
+            }
+        }
         
         result
     }
+
+    pub fn generate_iter<'a>(
+        &'a self,
+        token_ids: &[u32],
+        max_len: usize,
+        top_p: f32,
+        top_k: u32,
+        temperature: f32,
+        mut cache: &'a mut KVCache<f32>,
+    ) -> impl Iterator<Item = u32> + 'a {
+        // 用于存储生成的 token 序列
+        let mut generated_token_sequence = Vec::<u32>::new();
+        // 将输入的 token 序列复制到一个新的 Vec 中
+        let input_token_vec: Vec<u32> = token_ids.to_vec();
+        // 把 token 序列转换为二维张量，形状为 (1, token_ids 的长度)
+        let mut input_tensor = Tensor::<u32>::new(input_token_vec, &vec![1, token_ids.len()]);
+        // 创建一个迭代器，通过闭包逻辑来生成 token
+        std::iter::from_fn(move || {
+            // 检查是否达到最大生成长度，如果达到则停止迭代
+            if generated_token_sequence.len() >= max_len {
+                return None;
+            }
+            // 执行前向传播，得到每个词的未归一化概率分布
+            let probability_distribution = self.forward(&input_tensor, &mut cache);
+            // 根据 top_p、top_k 和 temperature 策略从概率分布中采样下一个 token
+            let next_generated_token = OP::random_sample(
+                &probability_distribution,
+                top_p,
+                top_k,
+                temperature,
+            );
+            // 将新生成的 token 添加到生成序列中
+            generated_token_sequence.push(next_generated_token);
+            // 检查是否生成了结束标记（EOS），如果是则停止迭代
+            if next_generated_token == self.eos_token_id {
+                return None;
+            }
+            // 更新输入张量，将新生成的 token 作为下一次的输入
+            input_tensor = Tensor::<u32>::new(vec![next_generated_token], &vec![1, 1]);
+            // 返回新生成的 token
+            Some(next_generated_token)
+        })
+    }
+
+    pub fn generate_cache(
+        &self,
+        token_ids: &[u32],
+        max_len: usize,
+        top_p: f32,
+        top_k: u32,
+        temperature: f32,
+        cache: &mut KVCache<f32>,
+    ) -> Vec<u32>{
+
+        let mut input = Tensor::new(token_ids.to_vec(), &vec![token_ids.len()]);
+        let mut result = Vec::<u32>::new();
+        result.extend_from_slice(token_ids);
+
+        for _ in 0..max_len {
+            let logits = self.forward(&input, cache);
+            
+            // 采样下一个token
+            let next_token = OP::random_sample(
+                &logits, 
+                top_p, 
+                top_k, 
+                temperature
+            );
+            
+            // 终止条件检查
+            if next_token == self.eos_token_id {
+                break;
+            }
+            
+            // 更新输入和结果
+            input = Tensor::new(vec![next_token], &vec![1]);
+            result.push(next_token);
+            
+            // 达到最大长度终止
+            if result.len() >= max_len {
+                break;
+            }
+        }
+        
+        result
+    }
+
+    //AI chat
+    pub fn chat(
+        &self, 
+        max_turns: usize,
+        max_len: usize,
+        top_p: f32, 
+        top_k: u32, 
+        temperature: f32) {
+
+        let mut cache = self.new_cache();
+        let tokenizer = Tokenizer::from_file("models/chat/tokenizer.json").unwrap();
+        let mut dialog_history = String::new();
+        
+        // 对话模板常量
+        const SYSTEM_PROMPT: &str = "<|im_start|>system\nYou are a helpful AI assistant.<|im_end|>\n";
+        const USER_PREFIX: &str = "<|im_start|>user\n";
+        const ASSISTANT_PREFIX: &str = "<|im_start|>assistant\n";
+        const END_MARKER: &str = "<|im_end|>\n";
+
+        dialog_history.push_str(SYSTEM_PROMPT);
+
+        for turn in 0..max_turns {
+            // 获取用户输入
+            let mut user_input = String::new();
+            println!("\nUser (turn {}):", turn + 1);
+            std::io::stdin().read_line(&mut user_input).unwrap();
+            user_input = user_input.trim().to_string();
+
+            if user_input.to_lowercase() == "exit" {
+                break;
+            }
+
+            // 构建prompt
+            dialog_history.push_str(&format!("{}{}{}", 
+                USER_PREFIX, 
+                user_input, 
+                END_MARKER
+            ));
+            dialog_history.push_str(ASSISTANT_PREFIX);
+
+            // 编码输入
+            let binding = tokenizer.encode(dialog_history.as_str(), true).unwrap();
+            let input_ids = binding.get_ids();
+            
+            // 生成回复
+            let result = self.generate(
+                input_ids,
+                500,  // 每轮最大生成长度
+                top_p,
+                top_k,
+                temperature
+            );
+            
+            // let mut input = Tensor::new(input_ids.to_vec(), &vec![input_ids.len()]);
+            // let mut result = Vec::with_capacity(max_len);
+            // result.extend_from_slice(input_ids);
+
+            // // 生成循环
+            // for _ in 0..max_len {
+            //     // 前向计算
+            //     let logits = self.forward(&input, &mut cache);
+                
+            //     // 采样下一个token
+            //     let next_token = OP::random_sample(
+            //         &logits, 
+            //         top_p, 
+            //         top_k, 
+            //         temperature
+            //     );
+                
+            //     // 终止条件检查
+            //     if next_token == self.eos_token_id {
+            //         break;
+            //     }
+                
+            //     // 更新输入和结果
+            //     input = Tensor::new(vec![next_token], &vec![1]);
+            //     result.push(next_token);
+                
+            //     // 达到最大长度终止
+            //     if result.len() >= max_len {
+            //         break;
+            //     }
+            // }
+            
+            // 解码并更新历史
+            let response = tokenizer.decode(&result, true).unwrap();
+            let clean_response = response.replace(END_MARKER, "").trim().to_string();
+            println!("Assistant: {}", clean_response);
+            
+            // 更新对话历史
+            dialog_history.push_str(&format!("{}{}", clean_response, END_MARKER));
+            
+            // 缓存管理（限制历史长度）
+            if dialog_history.len() > 4000 {
+                dialog_history.drain(0..2000);
+                cache = self.new_cache(); // 历史过长时重置缓存
+            }
+        }
+    }
+
 }
+
+
 
 fn self_attention(
     hidden_states: &mut Tensor<f32>, // (seq, n_kv_h * n_groups * dqkv)
@@ -153,7 +401,77 @@ fn self_attention(
     total_seq_len: usize,
     dqkv: usize,
 ) {
-    todo!("Implement self_attention");
+    // todo!("Implement self_attention");
+    {
+    let q_data = q.data();
+    let k_data = k.data();
+    let v_data = v.data();
+    let att_scores_data =  unsafe {att_scores.data_mut()};
+    let hidden_data =  unsafe {hidden_states.data_mut()};
+    let scale = 1. / (dqkv as f32).sqrt();
+    
+    for kv_head in 0..n_kv_h {
+        for group in 0..n_groups {
+            let q_group_start = kv_head * n_groups * dqkv + group * dqkv;
+            
+            for seq_pos in 0..seq_len {
+                let q_offset = seq_pos * n_kv_h * n_groups * dqkv + q_group_start;
+                
+                for total_pos in 0..total_seq_len {
+                    let k_offset = total_pos * n_kv_h * dqkv + kv_head * dqkv;
+                    
+                    let mut score = 0.0;
+                    for i in 0..dqkv {
+                        score += q_data[q_offset + i] * k_data[k_offset + i];
+                    }
+                    score *= scale;
+                    
+                    let att_index = kv_head * (n_groups * seq_len * total_seq_len)
+                        + group * (seq_len * total_seq_len)
+                        + seq_pos * total_seq_len
+                        + total_pos;
+                    att_scores_data[att_index] = score;
+                }
+            }
+        }
+    }
+    }
+    
+    OP::masked_softmax(att_scores);
+    
+    let q_data = q.data();
+    let k_data = k.data();
+    let v_data = v.data();
+    let att_scores_data =  unsafe {att_scores.data_mut()};
+    let hidden_data =  unsafe {hidden_states.data_mut()};
+
+    for kv_head in 0..n_kv_h {
+        for group in 0..n_groups {
+            let out_group_start = kv_head * n_groups * dqkv + group * dqkv;
+            
+            for seq_pos in 0..seq_len {
+                let out_offset = seq_pos * n_kv_h * n_groups * dqkv + out_group_start;
+                
+                for i in 0..dqkv {
+                    hidden_data[out_offset + i] = 0.0;
+                }
+                
+                for total_pos in 0..total_seq_len {
+                    let att_index = kv_head * (n_groups * seq_len * total_seq_len)
+                        + group * (seq_len * total_seq_len)
+                        + seq_pos * total_seq_len
+                        + total_pos;
+                    
+                    let att_weight = att_scores_data[att_index];
+                    let v_offset = total_pos * n_kv_h * dqkv + kv_head * dqkv;
+                    
+                    for i in 0..dqkv {
+                        hidden_data[out_offset + i] += att_weight * v_data[v_offset + i];
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn mlp(
