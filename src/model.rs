@@ -158,17 +158,16 @@ impl Llama<f32> {
         top_k: u32,
         temperature: f32,
     ) -> Vec<u32>{
-        // let mut result = Vec::<u32>::new();
+        let mut result = Vec::<u32>::new();
         
         // todo!("实现文本生成");
 
         let mut cache = self.new_cache(); // 初始化缓存
         let mut input = Tensor::new(token_ids.to_vec(), &vec![token_ids.len()]);
-        let mut result = Vec::<u32>::new();
         result.extend_from_slice(token_ids);
 
         // 生成循环
-        for _ in 0..max_len {
+        while result.len() < max_len {
             // 前向计算
             let logits = self.forward(&input, &mut cache);
             
@@ -189,10 +188,6 @@ impl Llama<f32> {
             input = Tensor::new(vec![next_token], &vec![1]);
             result.push(next_token);
             
-            // 达到最大长度终止
-            if result.len() >= max_len {
-                break;
-            }
         }
         
         result
@@ -253,9 +248,8 @@ impl Llama<f32> {
 
         let mut input = Tensor::new(token_ids.to_vec(), &vec![token_ids.len()]);
         let mut result = Vec::<u32>::new();
-        result.extend_from_slice(token_ids);
 
-        for _ in 0..max_len {
+        while result.len() < max_len {
             let logits = self.forward(&input, cache);
             
             // 采样下一个token
@@ -274,11 +268,6 @@ impl Llama<f32> {
             // 更新输入和结果
             input = Tensor::new(vec![next_token], &vec![1]);
             result.push(next_token);
-            
-            // 达到最大长度终止
-            if result.len() >= max_len {
-                break;
-            }
         }
         
         result
