@@ -100,21 +100,6 @@ pub fn rms_norm(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tensor<f32>, epsilon: 
         }
     }
 
-    // let dim = x.shape()[x.shape().len() - 1];
-    // let batch = x.size() / dim;
-
-    // for i in 0..batch {
-    //     let start = i * dim;
-    //     let x_i = &x.data()[start..][..dim];
-    //     let y_i = &mut unsafe { y.data_mut() }[start..][..dim];
-
-    //     let f = (x_i.iter().map(|&x_ii| x_ii * x_ii).sum::<f32>() / dim as f32 + epsilon).sqrt();
-
-    //     y_i.iter_mut()
-    //         .zip(x_i.iter().zip(w.data().iter()).map(|(&x_ii, &w_i)| x_ii * w_i / f))
-    //         .for_each(|(y_ii, x_ii)| *y_ii = x_ii);
-    // }
-
 }
 
 // y = silu(x) * y
@@ -136,24 +121,6 @@ pub fn swiglu(y: &mut Tensor<f32>, x: &Tensor<f32>) {
         _y[i] = _x[i]*(1. /(1. + std::f32::consts::E.powf(-_x[i])))*_y[i];
     }
 
-    // let len = y.size();
-    // assert!(len == x.size());
-
-    // let _y = unsafe { y.data_mut() };
-    // let _x = x.data();
-
-    // unsafe {
-    //     y.data_mut()
-    //         .iter_mut()
-    //         .zip(
-    //             x.data()
-    //                 .iter()
-    //                 .map(|x_i| 1. / (1. + (-*x_i).exp()))
-    //                 .zip(x.data().iter())
-    //                 .map(|(s_x, x_i)| s_x * *x_i),
-    //         )
-    //         .for_each(|(y_i, s_x)| *y_i = s_x * (*y_i));
-    // }
 }
 
 // C = beta * C + alpha * A @ B^T

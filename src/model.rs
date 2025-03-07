@@ -22,6 +22,7 @@ pub struct Llama<T> {
     rope_theta: f32,        // rope theta for rope initialization
     max_seq_len: usize,     // maximum sequence length
     params: LLamaParams<T>, // trained weights of this model
+    #[allow(dead_code)]
     bos_token_id: u32,      // start token id
     eos_token_id: u32,      // end token id
 }

@@ -6,6 +6,7 @@ pub struct Tensor<T> {
     length: usize,
 }
 
+
 impl<T: Copy + Clone + Default> Tensor<T> {
     pub fn new(data: Vec<T>, shape: &Vec<usize>) -> Self {
         let length = data.len();

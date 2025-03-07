@@ -337,11 +337,6 @@ fn main() {
     // 启动UI
     run_ui();
 
-    // let project_dir = env!("CARGO_MANIFEST_DIR");
-    // let model_dir = PathBuf::from(project_dir).join("models").join("chat");
-    // let llama = model::Llama::<f32>::from_safetensors(&model_dir);
-    // let tokenizer = Tokenizer::from_file(model_dir.join("tokenizer.json")).unwrap();
-
     // let mut user_input = String::new();
     // println!("\n Choose your function:\n 1: chat;\n 2: story;\n");
     // std::io::stdin().read_line(&mut user_input).unwrap();
